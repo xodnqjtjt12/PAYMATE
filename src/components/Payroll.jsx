@@ -13,6 +13,7 @@ import {
   doc,
   deleteDoc,
   setDoc,
+  orderBy,
 } from "firebase/firestore";
 import { startOfWeek, endOfWeek } from "date-fns";
 
@@ -246,6 +247,7 @@ const DeleteButton = styled.button`
   font-size: 13px;
   font-family: "Pretendard", "Roboto", sans-serif;
   transition: background-color 0.2s;
+  margin-left: 8px;
 
   &:hover {
     background-color: #e60000;
@@ -257,23 +259,97 @@ const DeleteButton = styled.button`
   }
 `;
 
+const EditButton = styled.button`
+  background-color: #0064ff;
+  color: #ffffff;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: "Pretendard", "Roboto", sans-serif;
+  transition: background-color 0.2s;
+
+  &:hover {
+    background-color: #0052cc;
+  }
+
+  @media (max-width: 768px) {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+`;
+
+const Pagination = styled.div`
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+
+  @media (max-width: 768px) {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+`;
+
+const PageButton = styled.button`
+  padding: 8px 12px;
+  font-size: 14px;
+  font-family: "Pretendard", "Roboto", sans-serif;
+  border: 1px solid #e8ecef;
+  border-radius: 6px;
+  background-color: #ffffff;
+  color: #1a1a1a;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    background-color: #f8fafc;
+    border-color: #0064ff;
+  }
+
+  &:disabled {
+    color: #adb5bd;
+    border-color: #e8ecef;
+    background-color: #ffffff;
+    cursor: not-allowed;
+  }
+
+  &.active {
+    background-color: #0064ff;
+    color: #ffffff;
+    border-color: #0064ff;
+  }
+
+  @media (max-width: 768px) {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+`;
+
 function Payroll({ dateRange }) {
   const [employees, setEmployees] = useState([]);
   const [newEmployee, setNewEmployee] = useState({
     name: "",
     wage: "",
-    hoursWorked: "",
+    hoursWorked: "0", // Default to 0
   });
   const [displayValues, setDisplayValues] = useState({
     wage: "",
-    hoursWorked: "",
+    hoursWorked: "0시간", // Default display
   });
   const [workRecords, setWorkRecords] = useState([]);
   const [selectedEmployee, setSelectedEmployee] = useState("all");
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingEmployeeId, setEditingEmployeeId] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const fetchEmployees = async () => {
     const employeesCollection = collection(db, "employees");
-    const employeeSnapshot = await getDocs(employeesCollection);
+    const q = query(employeesCollection, orderBy("createdAt", "desc"));
+    const employeeSnapshot = await getDocs(q);
     const employeeList = employeeSnapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
@@ -312,7 +388,7 @@ function Payroll({ dateRange }) {
   };
 
   const formatHours = (value) => {
-    if (!value) return "";
+    if (!value && value !== 0) return "";
     return Number(value).toLocaleString("ko-KR") + "시간";
   };
 
@@ -363,7 +439,7 @@ function Payroll({ dateRange }) {
 
   const handleInputBlur = (field, value) => {
     const numericValue = value.replace(/[^0-9]/g, "");
-    if (numericValue) {
+    if (numericValue || numericValue === "0") {
       setDisplayValues({
         ...displayValues,
         [field]:
@@ -380,22 +456,59 @@ function Payroll({ dateRange }) {
 
   const handleAddEmployee = async (e) => {
     e.preventDefault();
-    if (newEmployee.name && newEmployee.wage && newEmployee.hoursWorked) {
+    if (newEmployee.name && newEmployee.wage) {
       try {
         const employeeId = doc(collection(db, "employees")).id;
         await setDoc(doc(db, "employees", employeeId), {
           name: newEmployee.name,
           wage: Number(newEmployee.wage),
-          hoursWorked: Number(newEmployee.hoursWorked),
+          hoursWorked: Number(newEmployee.hoursWorked) || 0,
+          createdAt: Timestamp.fromDate(new Date()),
         });
-        setNewEmployee({ name: "", wage: "", hoursWorked: "" });
-        setDisplayValues({ wage: "", hoursWorked: "" });
+        setNewEmployee({ name: "", wage: "", hoursWorked: "0" });
+        setDisplayValues({ wage: "", hoursWorked: "0시간" });
         await fetchEmployees();
       } catch (error) {
         console.error("Error adding employee:", error.message);
         alert(`직원 추가에 실패했습니다: ${error.message}`);
       }
     }
+  };
+
+  const handleEditEmployee = async (e) => {
+    e.preventDefault();
+    if (newEmployee.name && newEmployee.wage && editingEmployeeId) {
+      try {
+        await setDoc(doc(db, "employees", editingEmployeeId), {
+          name: newEmployee.name,
+          wage: Number(newEmployee.wage),
+          hoursWorked: Number(newEmployee.hoursWorked) || 0,
+          createdAt: Timestamp.fromDate(new Date()),
+        });
+        setNewEmployee({ name: "", wage: "", hoursWorked: "0" });
+        setDisplayValues({ wage: "", hoursWorked: "0시간" });
+        setIsEditing(false);
+        setEditingEmployeeId(null);
+        await fetchEmployees();
+      } catch (error) {
+        console.error("Error editing employee:", error.message);
+        alert(`직원 수정에 실패했습니다: ${error.message}`);
+      }
+    }
+  };
+
+  const handleEditClick = (employee) => {
+    setIsEditing(true);
+    setEditingEmployeeId(employee.id);
+    setNewEmployee({
+      name: employee.name,
+      wage: employee.wage.toString(),
+      hoursWorked: (employee.hoursWorked || 0).toString(),
+    });
+    setDisplayValues({
+      wage: formatCurrency(employee.wage),
+      hoursWorked: formatHours(employee.hoursWorked || 0),
+    });
   };
 
   const handleDeleteEmployee = async (employeeId) => {
@@ -437,6 +550,17 @@ function Payroll({ dateRange }) {
     selectedEmployee === "all"
       ? employees
       : employees.filter((emp) => emp.id === selectedEmployee);
+
+  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedEmployees = filteredEmployees.slice(
+    startIndex,
+    startIndex + itemsPerPage
+  );
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
 
   const downloadPdf = () => {
     const doc = new jsPDF();
@@ -501,7 +625,7 @@ function Payroll({ dateRange }) {
           ))}
         </Select>
       </FilterContainer>
-      <Form onSubmit={handleAddEmployee}>
+      <Form onSubmit={isEditing ? handleEditEmployee : handleAddEmployee}>
         <Input
           type="text"
           placeholder="직원 이름"
@@ -521,13 +645,13 @@ function Payroll({ dateRange }) {
         />
         <Input
           type="text"
-          placeholder="근무 시간 (시간)"
+          placeholder="예상 근무 시간 (30시간)"
           value={displayValues.hoursWorked}
           onChange={(e) => handleInputChange("hoursWorked", e.target.value)}
           onBlur={(e) => handleInputBlur("hoursWorked", e.target.value)}
-          required
+          disabled // Disable manual input for hoursWorked
         />
-        <Button type="submit">직원 추가</Button>
+        <Button type="submit">{isEditing ? "저장" : "직원 추가"}</Button>
       </Form>
 
       <Title>직원 목록 및 급여</Title>
@@ -550,7 +674,7 @@ function Payroll({ dateRange }) {
           </tr>
         </thead>
         <tbody>
-          {filteredEmployees.map((employee) => {
+          {paginatedEmployees.map((employee) => {
             const hoursWorked = employee.hoursWorked || 0;
             const recordedHours = getWorkHours(employee.id);
             const salary = recordedHours * employee.wage;
@@ -565,6 +689,9 @@ function Payroll({ dateRange }) {
                   {numberToKorean(Math.round(salary))})
                 </td>
                 <td>
+                  <EditButton onClick={() => handleEditClick(employee)}>
+                    수정
+                  </EditButton>
                   <DeleteButton
                     onClick={() => handleDeleteEmployee(employee.id)}
                   >
@@ -576,6 +703,31 @@ function Payroll({ dateRange }) {
           })}
         </tbody>
       </Table>
+      {totalPages > 1 && (
+        <Pagination>
+          <PageButton
+            onClick={() => handlePageChange(currentPage - 1)}
+            disabled={currentPage === 1}
+          >
+            이전
+          </PageButton>
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+            <PageButton
+              key={page}
+              onClick={() => handlePageChange(page)}
+              className={currentPage === page ? "active" : ""}
+            >
+              {page}
+            </PageButton>
+          ))}
+          <PageButton
+            onClick={() => handlePageChange(currentPage + 1)}
+            disabled={currentPage === totalPages}
+          >
+            다음
+          </PageButton>
+        </Pagination>
+      )}
     </Section>
   );
 }
