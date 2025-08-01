@@ -130,18 +130,19 @@ const Input = styled.input`
 `;
 
 const Select = styled.select`
-  padding: 10px 12px;
+  padding: 14px 20px; /* 박스 크게 */
   border: 1px solid #e8ecef;
-  border-radius: 8px;
-  font-size: 15px;
+  border-radius: 10px;
+  font-size: 16px; /* 폰트 크게 */
   font-family: "Pretendard", "Roboto", sans-serif;
   background-color: #ffffff;
   color: #1a1a1a;
   appearance: none;
+
   background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231a1a1a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
   background-repeat: no-repeat;
-  background-position: right 12px center;
-  background-size: 16px;
+  background-position: right 2px center; /* 더 오른쪽으로 */
+  background-size: 18px;
 
   &:focus {
     outline: none;
@@ -156,13 +157,15 @@ const Select = styled.select`
 
   @media (max-width: 768px) {
     font-size: 14px;
-    padding: 8px;
+    padding: 10px 12px;
+    background-position: right 12px center; /* 모바일에선 다시 안쪽으로 */
+    background-size: 16px;
   }
 `;
 
 const Button = styled.button`
-  padding: 10px 20px;
-  font-size: 15px;
+  padding: 10px 16px;
+  font-size: 14px;
   font-weight: 600;
   border: none;
   border-radius: 8px;
@@ -185,6 +188,7 @@ const Button = styled.button`
   @media (max-width: 768px) {
     font-size: 14px;
     padding: 12px;
+    width: 100%;
   }
 `;
 
@@ -199,7 +203,6 @@ const AddButton = styled.button`
   color: #0064ff;
   font-family: "Pretendard", "Roboto", sans-serif;
   transition: all 0.2s;
-  margin-top: 12px;
 
   &:hover {
     background-color: #f8fafc;
@@ -370,6 +373,7 @@ const ExcelButtons = styled.div`
   display: flex;
   gap: 12px;
   margin-bottom: 20px;
+  flex-wrap: nowrap;
 
   @media (max-width: 768px) {
     flex-direction: column;
@@ -380,8 +384,9 @@ const ExcelButtons = styled.div`
 const ButtonContainer = styled.div`
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-top: 16px;
+  flex-wrap: nowrap;
 
   @media (max-width: 768px) {
     flex-direction: column;
@@ -579,7 +584,6 @@ function ScheduleManager() {
     } catch (error) {
       console.error("Error fetching schedules:", error.message, error.code);
       if (error.code === "failed-precondition") {
-        // Fallback: Fetch all schedules and filter client-side
         try {
           const q = query(
             collection(db, "workRecords"),
@@ -1049,20 +1053,28 @@ function ScheduleManager() {
         ))}
         <ButtonContainer>
           <AddButton onClick={addForm}>+ 추가</AddButton>
-          <BulkButton onClick={applyBulk}>일괄 추가</BulkButton>
-          <TooltipContainer>
-            <InfoIcon>i</InfoIcon>
-            <Tooltip>
-              일괄 추가 버튼은 맨 상단에 있는 날짜, 출근 시간, 퇴근 시간을
-              그대로 추가합니다
-            </Tooltip>
-          </TooltipContainer>
+          {formStates.length > 1 && (
+            <>
+              <BulkButton onClick={applyBulk}>일괄 추가</BulkButton>
+              <TooltipContainer>
+                <InfoIcon>i</InfoIcon>
+                <Tooltip>
+                  일괄 추가 버튼은 맨 상단에 있는 날짜, 출근 시간, 퇴근 시간을
+                  그대로 추가합니다
+                </Tooltip>
+              </TooltipContainer>
+            </>
+          )}
           <Button
             type="submit"
             onClick={handleSubmit}
-            style={{ width: "100%" }}
+            style={{ marginTop: "0" }}
           >
-            {currentSchedule ? "스케줄 수정" : "스케줄 추가"}
+            {currentSchedule
+              ? "스케줄 수정"
+              : formStates.length > 1
+              ? "스케줄 추가하기"
+              : "스케줄 추가하기"}
           </Button>
         </ButtonContainer>
       </FormContainer>
