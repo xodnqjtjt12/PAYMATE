@@ -108,6 +108,11 @@ const Input = styled.input`
     color: #adb5bd;
   }
 
+  &.error {
+    border-color: #ff2e2e;
+    box-shadow: 0 0 0 3px rgba(255, 46, 46, 0.1);
+  }
+
   @media (max-width: 768px) {
     width: 100%;
     font-size: 14px;
@@ -139,6 +144,17 @@ const Button = styled.button`
     width: 100%;
     font-size: 14px;
     padding: 12px;
+  }
+`;
+
+const ErrorMessage = styled.div`
+  font-size: 14px;
+  color: #ff2e2e;
+  margin-bottom: 16px;
+  font-family: "Pretendard", "Roboto", sans-serif;
+
+  @media (max-width: 768px) {
+    font-size: 13px;
   }
 `;
 
@@ -333,17 +349,18 @@ function Payroll({ dateRange }) {
   const [newEmployee, setNewEmployee] = useState({
     name: "",
     wage: "",
-    hoursWorked: "0", // Default to 0
+    hoursWorked: "",
   });
   const [displayValues, setDisplayValues] = useState({
     wage: "",
-    hoursWorked: "0시간", // Default display
+    hoursWorked: "",
   });
   const [workRecords, setWorkRecords] = useState([]);
   const [selectedEmployee, setSelectedEmployee] = useState("all");
   const [isEditing, setIsEditing] = useState(false);
   const [editingEmployeeId, setEditingEmployeeId] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [errors, setErrors] = useState({});
   const itemsPerPage = 10;
 
   const fetchEmployees = async () => {
@@ -383,7 +400,7 @@ function Payroll({ dateRange }) {
   }, [dateRange]);
 
   const formatCurrency = (value) => {
-    if (!value) return "";
+    if (!value && value !== 0) return "";
     return Number(value).toLocaleString("ko-KR") + "원";
   };
 
@@ -431,69 +448,115 @@ function Payroll({ dateRange }) {
     return result.trim();
   };
 
+  const validateInput = (field, value) => {
+    if (field === "name" && !value) {
+      return "이름을 입력해주세요.";
+    }
+    if (field === "wage" && (!value || Number(value) <= 0)) {
+      return "유효한 시급을 입력해주세요.";
+    }
+    if (field === "hoursWorked" && value && Number(value) < 0) {
+      return "근무 시간은 0 이상이어야 합니다.";
+    }
+    return "";
+  };
+
   const handleInputChange = (field, value) => {
-    const numericValue = value.replace(/[^0-9]/g, "");
+    let numericValue = value;
+    if (field !== "name") {
+      numericValue = value.replace(/[^0-9]/g, "");
+    }
     setNewEmployee({ ...newEmployee, [field]: numericValue });
-    setDisplayValues({ ...displayValues, [field]: value });
+    setDisplayValues({
+      ...displayValues,
+      [field]: field === "name" ? value : numericValue,
+    });
+    setErrors({ ...errors, [field]: validateInput(field, numericValue) });
   };
 
   const handleInputBlur = (field, value) => {
-    const numericValue = value.replace(/[^0-9]/g, "");
+    let numericValue = value;
+    if (field !== "name") {
+      numericValue = value.replace(/[^0-9]/g, "");
+    }
     if (numericValue || numericValue === "0") {
       setDisplayValues({
         ...displayValues,
         [field]:
           field === "wage"
             ? formatCurrency(numericValue)
-            : formatHours(numericValue),
+            : field === "hoursWorked"
+            ? formatHours(numericValue)
+            : numericValue,
       });
       setNewEmployee({ ...newEmployee, [field]: numericValue });
     } else {
       setDisplayValues({ ...displayValues, [field]: "" });
       setNewEmployee({ ...newEmployee, [field]: "" });
     }
+    setErrors({ ...errors, [field]: validateInput(field, numericValue) });
   };
 
   const handleAddEmployee = async (e) => {
     e.preventDefault();
-    if (newEmployee.name && newEmployee.wage) {
-      try {
-        const employeeId = doc(collection(db, "employees")).id;
-        await setDoc(doc(db, "employees", employeeId), {
-          name: newEmployee.name,
-          wage: Number(newEmployee.wage),
-          hoursWorked: Number(newEmployee.hoursWorked) || 0,
-          createdAt: Timestamp.fromDate(new Date()),
-        });
-        setNewEmployee({ name: "", wage: "", hoursWorked: "0" });
-        setDisplayValues({ wage: "", hoursWorked: "0시간" });
-        await fetchEmployees();
-      } catch (error) {
-        console.error("Error adding employee:", error.message);
-        alert(`직원 추가에 실패했습니다: ${error.message}`);
-      }
+    const newErrors = {
+      name: validateInput("name", newEmployee.name),
+      wage: validateInput("wage", newEmployee.wage),
+      hoursWorked: validateInput("hoursWorked", newEmployee.hoursWorked),
+    };
+    setErrors(newErrors);
+
+    if (Object.values(newErrors).some((error) => error)) {
+      return;
+    }
+
+    try {
+      const employeeId = doc(collection(db, "employees")).id;
+      await setDoc(doc(db, "employees", employeeId), {
+        name: newEmployee.name,
+        wage: Number(newEmployee.wage),
+        hoursWorked: Number(newEmployee.hoursWorked) || 0,
+        createdAt: Timestamp.fromDate(new Date()),
+      });
+      setNewEmployee({ name: "", wage: "", hoursWorked: "" });
+      setDisplayValues({ wage: "", hoursWorked: "" });
+      setErrors({});
+      await fetchEmployees();
+    } catch (error) {
+      console.error("Error adding employee:", error.message);
+      alert(`직원 추가에 실패했습니다: ${error.message}`);
     }
   };
 
   const handleEditEmployee = async (e) => {
     e.preventDefault();
-    if (newEmployee.name && newEmployee.wage && editingEmployeeId) {
-      try {
-        await setDoc(doc(db, "employees", editingEmployeeId), {
-          name: newEmployee.name,
-          wage: Number(newEmployee.wage),
-          hoursWorked: Number(newEmployee.hoursWorked) || 0,
-          createdAt: Timestamp.fromDate(new Date()),
-        });
-        setNewEmployee({ name: "", wage: "", hoursWorked: "0" });
-        setDisplayValues({ wage: "", hoursWorked: "0시간" });
-        setIsEditing(false);
-        setEditingEmployeeId(null);
-        await fetchEmployees();
-      } catch (error) {
-        console.error("Error editing employee:", error.message);
-        alert(`직원 수정에 실패했습니다: ${error.message}`);
-      }
+    const newErrors = {
+      name: validateInput("name", newEmployee.name),
+      wage: validateInput("wage", newEmployee.wage),
+      hoursWorked: validateInput("hoursWorked", newEmployee.hoursWorked),
+    };
+    setErrors(newErrors);
+
+    if (Object.values(newErrors).some((error) => error) || !editingEmployeeId) {
+      return;
+    }
+
+    try {
+      await setDoc(doc(db, "employees", editingEmployeeId), {
+        name: newEmployee.name,
+        wage: Number(newEmployee.wage),
+        hoursWorked: Number(newEmployee.hoursWorked) || 0,
+        createdAt: Timestamp.fromDate(new Date()),
+      });
+      setNewEmployee({ name: "", wage: "", hoursWorked: "" });
+      setDisplayValues({ wage: "", hoursWorked: "" });
+      setErrors({});
+      setIsEditing(false);
+      setEditingEmployeeId(null);
+      await fetchEmployees();
+    } catch (error) {
+      console.error("Error editing employee:", error.message);
+      alert(`직원 수정에 실패했습니다: ${error.message}`);
     }
   };
 
@@ -509,6 +572,7 @@ function Payroll({ dateRange }) {
       wage: formatCurrency(employee.wage),
       hoursWorked: formatHours(employee.hoursWorked || 0),
     });
+    setErrors({});
   };
 
   const handleDeleteEmployee = async (employeeId) => {
@@ -625,14 +689,20 @@ function Payroll({ dateRange }) {
           ))}
         </Select>
       </FilterContainer>
+      {Object.values(errors).some((error) => error) && (
+        <ErrorMessage>
+          {Object.values(errors).find((error) => error) ||
+            "입력값을 확인해주세요."}
+        </ErrorMessage>
+      )}
       <Form onSubmit={isEditing ? handleEditEmployee : handleAddEmployee}>
         <Input
           type="text"
           placeholder="직원 이름"
           value={newEmployee.name}
-          onChange={(e) =>
-            setNewEmployee({ ...newEmployee, name: e.target.value })
-          }
+          onChange={(e) => handleInputChange("name", e.target.value)}
+          onBlur={(e) => handleInputBlur("name", e.target.value)}
+          className={errors.name ? "error" : ""}
           required
         />
         <Input
@@ -641,6 +711,7 @@ function Payroll({ dateRange }) {
           value={displayValues.wage}
           onChange={(e) => handleInputChange("wage", e.target.value)}
           onBlur={(e) => handleInputBlur("wage", e.target.value)}
+          className={errors.wage ? "error" : ""}
           required
         />
         <Input
@@ -649,7 +720,7 @@ function Payroll({ dateRange }) {
           value={displayValues.hoursWorked}
           onChange={(e) => handleInputChange("hoursWorked", e.target.value)}
           onBlur={(e) => handleInputBlur("hoursWorked", e.target.value)}
-          disabled // Disable manual input for hoursWorked
+          className={errors.hoursWorked ? "error" : ""}
         />
         <Button type="submit">{isEditing ? "저장" : "직원 추가"}</Button>
       </Form>
