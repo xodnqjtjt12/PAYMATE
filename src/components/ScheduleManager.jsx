@@ -43,6 +43,28 @@ const Title = styled.h2`
   }
 `;
 
+const FilterContainer = styled.div`
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  @media (max-width: 768px) {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+`;
+
+const FilterLabel = styled.label`
+  font-size: 15px;
+  font-weight: 600;
+  color: #4a4a4a;
+
+  @media (max-width: 768px) {
+    font-size: 14px;
+  }
+`;
+
 const FormContainer = styled.div`
   margin-bottom: 24px;
 `;
