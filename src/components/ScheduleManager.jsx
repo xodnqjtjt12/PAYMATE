@@ -12,6 +12,7 @@ import {
   query,
   orderBy,
   setDoc,
+  where,
 } from "firebase/firestore";
 import { format, parseISO, differenceInHours } from "date-fns";
 import * as XLSX from "xlsx";
@@ -78,6 +79,7 @@ const Form = styled.form`
   border: 1px solid #e8ecef;
   border-radius: 8px;
   background-color: #f8fafc;
+  position: relative;
 
   @media (max-width: 768px) {
     grid-template-columns: 1fr;
@@ -206,6 +208,39 @@ const AddButton = styled.button`
   @media (max-width: 768px) {
     width: 100%;
     font-size: 13px;
+  }
+`;
+
+const BulkButton = styled(AddButton)`
+  border-color: #28a745;
+  color: #28a745;
+
+  &:hover {
+    background-color: #e8f5e9;
+  }
+`;
+
+const DeleteFormButton = styled.button`
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background-color: #ff2e2e;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: "Pretendard", "Roboto", sans-serif;
+  transition: background-color 0.2s;
+
+  &:hover {
+    background-color: #e60000;
+  }
+
+  @media (max-width: 768px) {
+    padding: 8px 12px;
+    font-size: 12px;
   }
 `;
 
@@ -342,6 +377,18 @@ const ExcelButtons = styled.div`
   }
 `;
 
+const ButtonContainer = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+
+  @media (max-width: 768px) {
+    flex-direction: column;
+    gap: 10px;
+  }
+`;
+
 const FileInputContainer = styled.div`
   position: relative;
   display: flex;
@@ -407,6 +454,65 @@ const ErrorMessage = styled.div`
   }
 `;
 
+const TooltipContainer = styled.div`
+  position: relative;
+  display: inline-block;
+`;
+
+const InfoIcon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background-color: #0064ff;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: help;
+`;
+
+const Tooltip = styled.div`
+  visibility: hidden;
+  width: 240px;
+  background-color: #1a1a1a;
+  color: #ffffff;
+  text-align: center;
+  border-radius: 6px;
+  padding: 8px;
+  position: absolute;
+  z-index: 1;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px;
+  font-family: "Pretendard", "Roboto", sans-serif;
+  opacity: 0;
+  transition: opacity 0.2s;
+
+  &:after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #1a1a1a transparent transparent transparent;
+  }
+
+  ${TooltipContainer}:hover & {
+    visibility: visible;
+    opacity: 1;
+  }
+
+  @media (max-width: 768px) {
+    width: 200px;
+    font-size: 12px;
+  }
+`;
+
 function ScheduleManager() {
   const [employees, setEmployees] = useState([]);
   const [schedules, setSchedules] = useState([]);
@@ -416,44 +522,106 @@ function ScheduleManager() {
   ]);
   const [isDragging, setIsDragging] = useState(false);
   const [missingFields, setMissingFields] = useState([]);
+  const [selectedEmployee, setSelectedEmployee] = useState("all");
 
   const fetchEmployees = useCallback(async () => {
-    const employeesCollection = collection(db, "employees");
-    const employeeSnapshot = await getDocs(employeesCollection);
-    const employeeList = employeeSnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-    setEmployees(employeeList);
-    if (employeeList.length > 0 && !formStates[0].employeeId) {
-      setFormStates((prev) =>
-        prev.map((form, index) =>
-          index === 0 ? { ...form, employeeId: employeeList[0].id } : form
-        )
-      );
+    try {
+      const employeesCollection = collection(db, "employees");
+      const employeeSnapshot = await getDocs(employeesCollection);
+      const employeeList = employeeSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      console.log("Fetched employees:", employeeList);
+      setEmployees(employeeList);
+      if (employeeList.length > 0 && !formStates[0].employeeId) {
+        setFormStates((prev) =>
+          prev.map((form, index) =>
+            index === 0 ? { ...form, employeeId: employeeList[0].id } : form
+          )
+        );
+      }
+    } catch (error) {
+      console.error("Error fetching employees:", error);
+      alert("직원 목록을 불러오는데 실패했습니다.");
     }
   }, [formStates]);
 
   const fetchSchedules = useCallback(async () => {
-    const q = query(
-      collection(db, "workRecords"),
-      orderBy("clockInTime", "desc")
-    );
-    const querySnapshot = await getDocs(q);
-    const fetchedSchedules = querySnapshot.docs.map((doc) => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        employeeId: data.employeeId,
-        date: format(data.clockInTime.toDate(), "yyyy-MM-dd"),
-        clockIn: format(data.clockInTime.toDate(), "HH:mm"),
-        clockOut: data.clockOutTime
-          ? format(data.clockOutTime.toDate(), "HH:mm")
-          : "",
-      };
-    });
-    setSchedules(fetchedSchedules);
-  }, []);
+    try {
+      let q = query(
+        collection(db, "workRecords"),
+        orderBy("clockInTime", "desc")
+      );
+      if (selectedEmployee !== "all") {
+        q = query(
+          collection(db, "workRecords"),
+          where("employeeId", "==", selectedEmployee),
+          orderBy("clockInTime", "desc")
+        );
+      }
+      const querySnapshot = await getDocs(q);
+      const fetchedSchedules = querySnapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          employeeId: data.employeeId,
+          date: format(data.clockInTime.toDate(), "yyyy-MM-dd"),
+          clockIn: format(data.clockInTime.toDate(), "HH:mm"),
+          clockOut: data.clockOutTime
+            ? format(data.clockOutTime.toDate(), "HH:mm")
+            : "",
+        };
+      });
+      console.log("Selected employee:", selectedEmployee);
+      console.log("Fetched schedules:", fetchedSchedules);
+      setSchedules(fetchedSchedules);
+    } catch (error) {
+      console.error("Error fetching schedules:", error.message, error.code);
+      if (error.code === "failed-precondition") {
+        // Fallback: Fetch all schedules and filter client-side
+        try {
+          const q = query(
+            collection(db, "workRecords"),
+            orderBy("clockInTime", "desc")
+          );
+          const querySnapshot = await getDocs(q);
+          const allSchedules = querySnapshot.docs.map((doc) => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              employeeId: data.employeeId,
+              date: format(data.clockInTime.toDate(), "yyyy-MM-dd"),
+              clockIn: format(data.clockInTime.toDate(), "HH:mm"),
+              clockOut: data.clockOutTime
+                ? format(data.clockOutTime.toDate(), "HH:mm")
+                : "",
+            };
+          });
+          if (selectedEmployee !== "all") {
+            const filteredSchedules = allSchedules.filter(
+              (schedule) => schedule.employeeId === selectedEmployee
+            );
+            setSchedules(filteredSchedules);
+            console.log("Client-side filtered schedules:", filteredSchedules);
+          } else {
+            setSchedules(allSchedules);
+          }
+        } catch (fallbackError) {
+          console.error("Fallback fetch failed:", fallbackError);
+          alert(
+            "스케줄 조회에 실패했습니다. Firebase 콘솔(https://console.firebase.google.com/)에서 'workRecords' 컬렉션에 복합 인덱스(employeeId Ascending, clockInTime Descending)를 생성하세요. 에러: " +
+              error.message
+          );
+        }
+      } else {
+        alert(
+          "스케줄 조회에 실패했습니다. Firebase 콘솔(https://console.firebase.google.com/)에서 'workRecords' 컬렉션에 복합 인덱스(employeeId Ascending, clockInTime Descending)를 생성하세요. 에러: " +
+            error.message
+        );
+      }
+    }
+  }, [selectedEmployee]);
 
   useEffect(() => {
     fetchEmployees();
@@ -465,7 +633,6 @@ function ScheduleManager() {
     setFormStates((prev) =>
       prev.map((form, i) => (i === index ? { ...form, [name]: value } : form))
     );
-    // Clear missing fields for the changed input
     setMissingFields((prev) =>
       prev.filter((field) => field.formIndex !== index || field.field !== name)
     );
@@ -478,28 +645,37 @@ function ScheduleManager() {
       clockIn: "",
       clockOut: "",
     };
-    const hasMissing = formStates.some(
-      (form) =>
-        !form.employeeId || !form.date || !form.clockIn || !form.clockOut
-    );
-    if (hasMissing) {
-      const newMissingFields = formStates
-        .map((form, index) => {
-          const fields = [];
-          if (!form.employeeId)
-            fields.push({ formIndex: index, field: "employeeId" });
-          if (!form.date) fields.push({ formIndex: index, field: "date" });
-          if (!form.clockIn)
-            fields.push({ formIndex: index, field: "clockIn" });
-          if (!form.clockOut)
-            fields.push({ formIndex: index, field: "clockOut" });
-          return fields;
-        })
-        .flat();
-      setMissingFields(newMissingFields);
+    setFormStates((prev) => [...prev, newForm]);
+  };
+
+  const removeForm = (index) => {
+    if (formStates.length <= 1) {
+      alert("최소 하나의 폼은 유지해야 합니다.");
       return;
     }
-    setFormStates((prev) => [...prev, newForm]);
+    setFormStates((prev) => prev.filter((_, i) => i !== index));
+    setMissingFields((prev) =>
+      prev.filter((field) => field.formIndex !== index)
+    );
+  };
+
+  const applyBulk = () => {
+    if (formStates.length <= 1) return;
+    const { date, clockIn, clockOut } = formStates[0];
+    if (!date || !clockIn || !clockOut) {
+      alert("맨 위 폼의 날짜, 출근 시간, 퇴근 시간을 입력해주세요.");
+      return;
+    }
+    setFormStates((prev) =>
+      prev.map((form, index) =>
+        index === 0 ? form : { ...form, date, clockIn, clockOut }
+      )
+    );
+    setMissingFields((prev) =>
+      prev.filter(
+        (field) => !["date", "clockIn", "clockOut"].includes(field.field)
+      )
+    );
   };
 
   const calculateWorkHours = (formState) => {
@@ -866,19 +1042,50 @@ function ScheduleManager() {
                 </WorkHours>
               )}
             </FormGroup>
+            <DeleteFormButton onClick={() => removeForm(index)}>
+              삭제
+            </DeleteFormButton>
           </Form>
         ))}
-        <AddButton onClick={addForm}>+ 추가</AddButton>
-        <Button
-          type="submit"
-          onClick={handleSubmit}
-          style={{ marginTop: "16px", width: "100%" }}
-        >
-          {currentSchedule ? "스케줄 수정" : "스케줄 추가"}
-        </Button>
+        <ButtonContainer>
+          <AddButton onClick={addForm}>+ 추가</AddButton>
+          <BulkButton onClick={applyBulk}>일괄 추가</BulkButton>
+          <TooltipContainer>
+            <InfoIcon>i</InfoIcon>
+            <Tooltip>
+              일괄 추가 버튼은 맨 상단에 있는 날짜, 출근 시간, 퇴근 시간을
+              그대로 추가합니다
+            </Tooltip>
+          </TooltipContainer>
+          <Button
+            type="submit"
+            onClick={handleSubmit}
+            style={{ width: "100%" }}
+          >
+            {currentSchedule ? "스케줄 수정" : "스케줄 추가"}
+          </Button>
+        </ButtonContainer>
       </FormContainer>
 
       <Title>등록된 스케줄</Title>
+      <FilterContainer>
+        <FilterLabel>직원 필터:</FilterLabel>
+        <Select
+          value={selectedEmployee}
+          onChange={(e) => {
+            setSelectedEmployee(e.target.value);
+            console.log("Filter changed to:", e.target.value);
+          }}
+          disabled={employees.length === 0}
+        >
+          <option value="all">모두 보기</option>
+          {employees.map((emp) => (
+            <option key={emp.id} value={emp.id}>
+              {emp.name}
+            </option>
+          ))}
+        </Select>
+      </FilterContainer>
       <TableWrapper>
         <Table>
           <thead>
